@@ -24,20 +24,32 @@ def load_and_index_multiple_folders(folders):
     return create_faiss_index(all_texts)
 
 # Google Sheets に接続
+# 認証情報・シート名が未設定、または接続に失敗した場合は None を返す（アプリ全体をクラッシュさせない）
 def get_gsheet():
     import json
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_dict = json.loads(st.secrets["GSPREAD_SERVICE_ACCOUNT"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open(st.secrets["SHEET_NAME"]).sheet1
-    return sheet
+    try:
+        if "GSPREAD_SERVICE_ACCOUNT" not in st.secrets or "SHEET_NAME" not in st.secrets:
+            return None
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds_dict = json.loads(st.secrets["GSPREAD_SERVICE_ACCOUNT"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open(st.secrets["SHEET_NAME"]).sheet1
+        return sheet
+    except Exception as e:
+        st.warning(f"Google Sheetsへの接続に失敗しました（ログの保存・取得はスキップされます）: {e}")
+        return None
 
 # 会話履歴を1行だけGoogle Sheetsに保存
 def save_single_turn_to_sheet(user_query, assistant_response, student_id, student_name):
     sheet = get_gsheet()
-    timestamp = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
-    sheet.append_row([timestamp, student_id, student_name, user_query, assistant_response])
+    if sheet is None:
+        return
+    try:
+        timestamp = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([timestamp, student_id, student_name, user_query, assistant_response])
+    except Exception as e:
+        st.warning(f"会話ログの保存に失敗しました: {e}")
 
 def fetch_recent_history_text(student_id: str, limit: int = 10) -> list:
     """指定 student_id の履歴をリスト形式で取得（改行対策済み）"""
@@ -45,7 +57,15 @@ def fetch_recent_history_text(student_id: str, limit: int = 10) -> list:
         return []
 
     sheet = get_gsheet()
-    rows = sheet.get_all_values()
+    if sheet is None:
+        return []
+
+    try:
+        rows = sheet.get_all_values()
+    except Exception as e:
+        st.warning(f"会話履歴の取得に失敗しました: {e}")
+        return []
+
     if len(rows) <= 1:
         return []
 
