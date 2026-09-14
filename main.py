@@ -2,7 +2,7 @@ import os
 import gspread
 import streamlit as st
 from dotenv import load_dotenv
-from datetime import datetime  
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 from file_loader import load_pdf
@@ -22,7 +22,7 @@ def load_and_index_multiple_folders(folders):
         texts = load_and_index_folder(folder, return_documents=True)
         all_texts.extend(texts)
     return create_faiss_index(all_texts)
-    
+
 # Google Sheets に接続
 def get_gsheet():
     import json
@@ -32,13 +32,13 @@ def get_gsheet():
     client = gspread.authorize(creds)
     sheet = client.open(st.secrets["SHEET_NAME"]).sheet1
     return sheet
-    
-# 会話履歴を1行だけGoogle Sheetsに保存（student_idは常にanonymous）
+
+# 会話履歴を1行だけGoogle Sheetsに保存
 def save_single_turn_to_sheet(user_query, assistant_response, student_id, student_name):
     sheet = get_gsheet()
     timestamp = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
     sheet.append_row([timestamp, student_id, student_name, user_query, assistant_response])
-    
+
 def fetch_recent_history_text(student_id: str, limit: int = 10) -> list:
     """指定 student_id の履歴をリスト形式で取得（改行対策済み）"""
     if not student_id:
@@ -50,25 +50,21 @@ def fetch_recent_history_text(student_id: str, limit: int = 10) -> list:
         return []
 
     header = rows[0]
-    # 列番号の特定（query と response に対応）
     col_sid = header.index("student_id") if "student_id" in header else 1
-    col_q = header.index("user_query") if "user_query" in header else 3 # 保存時の名前に合わせる
+    col_q = header.index("user_query") if "user_query" in header else 3
     col_r = header.index("assistant_response") if "assistant_response" in header else 4
 
     pairs = []
-    # 新しい順にスキャン
     for r in reversed(rows[1:]):
         if len(r) > col_r and r[col_sid].strip() == (student_id or "").strip():
-            # QとAをセットにして保存（ここではまだ整形しない）
             pairs.append({"query": r[col_q], "response": r[col_r]})
         if len(pairs) >= limit:
             break
 
-    # 表示用に古い順に戻してリストで返す
     return pairs[::-1]
 
 # Streamlitのヘッダー
-st.title("質問応答チャットボット（情報技術者キャリアデザイン入門）")
+st.title("質問応答チャットボット（情報ネットワーク工学入門）")
 
 # --- Moodleからパラメータ受け取り ---
 params = st.query_params
@@ -79,10 +75,8 @@ student_name = st.query_params.get("student_name", "不明")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-    # ▼ 過去10件の会話履歴を取得（修正版：リストが返ってくる）
     history_data = fetch_recent_history_text(student_id, limit=10)
 
-    # 文字列分割をやめ、リストから直接 session_state に入れる
     for item in history_data:
         st.session_state.messages.append({
             "role": "user",
@@ -93,16 +87,14 @@ if "messages" not in st.session_state:
             "content": item["response"]
         })
 
-# --- フォルダの読み込み処理（変更なし） ---
-lecture_folder = "./it-career-design"  # 講義資料フォルダ
-example_folder = "./it-career-design_example"     # 回答例フォルダ
-log_folder = "./logs"             # 会話ログ保存フォルダ
+# --- フォルダの読み込み処理 ---
+lecture_folder = "./information-network-engineering-intro"
+example_folder = "./information-network-engineering-intro_example"
 
 folders_to_load = [lecture_folder]
 if os.path.exists(example_folder):
     folders_to_load.append(example_folder)
 
-# リスト → タプルに変換してから渡す
 combined_index = load_and_index_multiple_folders(tuple(folders_to_load))
 
 # セッション状態でバナーの表示・非表示を管理するフラグを初期化
@@ -125,11 +117,10 @@ with st.form(key='chat_form', clear_on_submit=True):
 
 # --- 4. 応答処理 ---
 if submit_button and query:
-    # 送信された瞬間にフラグをTrueにする
     st.session_state.welcome_hidden = True
-    
+
     st.session_state.messages.append({"role": "user", "content": query})
-    
+
     response = search_index(
         combined_index,
         query,
@@ -138,6 +129,5 @@ if submit_button and query:
 
     st.session_state.messages.append({"role": "assistant", "content": response})
     save_single_turn_to_sheet(query, response, student_id, student_name)
-    
-    # 画面を更新してバナーを消去
+
     st.rerun()
