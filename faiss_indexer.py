@@ -12,7 +12,6 @@ load_dotenv()
 # 環境変数からAPIキーと設定を取得
 ANTHROPIC_API_KEY       = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY          = os.getenv("OPENAI_API_KEY")  # Embedding用（OpenAIのまま）
-CLAUDE_API_TEMPERATURE  = float(os.getenv("CLAUDE_API_TEMPERATURE", "0.15"))  # 0.0〜1.0
 CLAUDE_API_MAX_TOKENS   = int(os.getenv("CLAUDE_API_MAX_TOKENS",    "1000"))
 CLAUDE_API_TOP_K        = int(os.getenv("CLAUDE_API_TOP_K",         "3"))     # FAISS検索件数
 EMBEDDING_MODEL_NAME    = os.getenv("OPENAI_EMBEDDING_MODEL",       "text-embedding-3-small")
@@ -107,12 +106,16 @@ def search_index(faiss_index, query, history_pairs=None):
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=CLAUDE_API_MAX_TOKENS,
-        temperature=CLAUDE_API_TEMPERATURE,
         system=system_prompt,   # ← Anthropicはsystemを専用引数で渡す
         messages=messages,
     )
 
-    return response.content[0].text
+    # 拡張思考が有効な場合、content[0]がThinkingBlockになることがあるため、
+    # テキストブロックを明示的に探す
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    return ""
 
 
 def load_and_index_folder(folder_path, return_documents=False):

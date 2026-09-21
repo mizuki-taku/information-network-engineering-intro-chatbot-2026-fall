@@ -130,13 +130,11 @@ for message in st.session_state.messages:
 if not st.session_state.welcome_hidden:
     st.info(f"ようこそ {student_name} さん (学籍番号: {student_id})")
 
-# --- 3. ユーザー入力エリア（フォーム） ---
-with st.form(key='chat_form', clear_on_submit=True):
-    query = st.text_area("質問を入力してください（Ctrl + Enterで送信）:", key="user_input_area")
-    submit_button = st.form_submit_button("送信")
+# --- 3. ユーザー入力エリア（画面下部に固定） ---
+query = st.chat_input("質問を入力してください")
 
 # --- 4. 応答処理 ---
-if submit_button and query:
+if query:
     st.session_state.welcome_hidden = True
 
     st.session_state.messages.append({"role": "user", "content": query})
