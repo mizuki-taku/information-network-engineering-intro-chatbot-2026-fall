@@ -27,9 +27,11 @@ def create_faiss_index(texts):
     Embeddingモデルは環境変数 OPENAI_EMBEDDING_MODEL で指定
     ※ Embeddingは引き続きOpenAIを使用
     """
+
+
     embeddings = OpenAIEmbeddings(
         api_key=OPENAI_API_KEY,
-        model=EMBEDDING_MODEL_NAME
+        model=EMBEDDING_MODEL_NAME,
         chunk_size=100  # 1リクエストあたりのテキスト数を抑え、300,000トークン/リクエスト上限を回避
     )
     return FAISS.from_documents(texts, embeddings)
