@@ -111,13 +111,11 @@ def _parse_item(raw, index: int, seen_ids: set):
     return faq, warnings
 
 
-@st.cache_data(show_spinner=False)
-def _load_faqs_cached(path: str, mtime: float):
-    """mtime はキャッシュキーとしてだけ使う（ファイルが更新されると再読み込みされる）"""
+def parse_faqs(text: str):
+    """faq.yaml の中身を解析する。戻り値は (Faqのリスト, 警告のリスト)。不正な項目はスキップする"""
     try:
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
         return [], [f"faq.yaml を読み込めませんでした（よくある質問は表示されません）: {e}"]
 
     if data is None:
@@ -135,6 +133,17 @@ def _load_faqs_cached(path: str, mtime: float):
     # order 指定ありを先に（order順）、指定なしはその後ろに記載順で並べる
     faqs.sort(key=lambda p: (p[1].order is None, p[1].order or 0, p[0]))
     return [faq for _, faq in faqs], warnings
+
+
+@st.cache_data(show_spinner=False)
+def _load_faqs_cached(path: str, mtime: float):
+    """mtime はキャッシュキーとしてだけ使う（ファイルが更新されると再読み込みされる）"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        return [], [f"faq.yaml を読み込めませんでした（よくある質問は表示されません）: {e}"]
+    return parse_faqs(text)
 
 
 def load_faqs(path: str):

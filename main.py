@@ -183,7 +183,8 @@ def answer_query(query):
         response = search_index(
             combined_index,
             query,
-            history_pairs=messages[-20:]
+            history_pairs=messages[-20:],
+            faq_items=faqs,
         )
 
     messages.append({"role": "assistant", "content": response})

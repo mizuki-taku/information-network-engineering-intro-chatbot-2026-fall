@@ -1,4 +1,4 @@
-# software-engineering-chatbot
+# information-network-engineering-intro-chatbot
 
 ローカル環境で動かす手順
 
@@ -66,5 +66,19 @@ faqs:
   - 誤判定を避けるため、判定するのは60文字以下の短い入力だけ（`main.py` 冒頭の `FAQ_MATCH_MAX_CHARS`）。長い感想に語句が入っていても、AIが回答する。
   - 「出席」のような短い語は広く当たる。講義内容の質問にも出てくる語（例:「仕様」「プロトコル」）は入れない。迷ったら「どう書け」「出席できた」のように、言い回しごと登録する。
   - keywords のない項目は、一覧に表示されるだけで自動判定には使われない。
+- **AIの回答への反映**: 有効な項目の `question` と `answer` は、授業運営についての公式回答としてAIのシステムプロンプトにも埋め込まれる。出席・提出方法などの質問に、AIは講義資料より `faq.yaml` を優先して答え、該当する項目がなければ「担当の先生に確認してください」と案内する。
 - 書き方を間違えた項目は、その項目だけ読み飛ばし、「よくある質問」の一覧に警告を表示する。
 - 誘導メッセージの文言、判定の上限文字数、科目名などは `main.py` 冒頭の「UI設定」で変更できる。他科目に展開するときは、`ui/` フォルダと `faq.py` をそのままコピーし、`main.py` の「UI設定」と `faq.yaml` を科目に合わせる。
+
+## 応答の評価（tools/eval_responses.py）
+
+応答の指示文（`faiss_indexer.py` の `SYSTEM_PROMPT_TEMPLATE`）を変更したら、変更前（legacy）と変更後（new）の応答を同じ入力例で比べて確認する。入力例は、感想・授業内容の質問・小テストの問題・授業運営の質問・あいまいな入力の5種類で、この科目の講義資料をもとに作っている。
+
+```
+.venv/bin/python tools/eval_responses.py                       # legacy と new を比較
+.venv/bin/python tools/eval_responses.py --variants new --only quiz   # 種類を絞って実行
+.venv/bin/python tools/eval_responses.py --rescore eval_outputs/<日時>  # APIを呼ばずに判定し直す
+```
+
+- 結果は `eval_outputs/<日時>/report.md` に保存される（コミットしない）。判定は機械的な目安なので、小テストの正解漏れなどは応答本文も読んで確認する。
+- 初回は講義資料のインデックスを作成して `.eval_cache/` に保存する（OpenAIのEmbedding APIを使う）。講義資料を差し替えたら `.eval_cache/` を削除する。
