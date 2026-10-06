@@ -7,3 +7,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# tools/eval_responses.py の出力とインデックスのキャッシュ
+eval_outputs/
+.eval_cache/
