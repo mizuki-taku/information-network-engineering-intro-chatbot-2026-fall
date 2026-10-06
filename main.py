@@ -10,6 +10,29 @@ from file_loader import load_text
 from file_loader import load_docx
 from text_splitter import split_text
 from faiss_indexer import load_and_index_folder, search_index, create_faiss_index
+from faq import load_faqs, match_faqs, build_redirect_message
+from ui import header, qa, history, faq_view
+
+# ===== UI設定（科目ごとに変更するのはここだけ） =====
+SUBJECT_NAME = "情報ネットワーク工学入門"
+FAQ_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "faq.yaml")
+HISTORY_HEIGHT = 520          # 過去ログ枠の高さ（px）
+HISTORY_NEWEST_FIRST = True   # 過去ログを新しい順に並べる（Falseで古い順）
+HISTORY_FETCH_LIMIT = 10      # 起動時にGoogle Sheetsから読み込む過去のやり取りの件数
+FAQ_MATCH_MAX_CHARS = 60      # この文字数以下の入力だけをFAQ判定の対象にする
+FAQ_MATCH_MAX_ITEMS = 3       # 誘導メッセージで案内するFAQの最大件数
+FAQ_REDIRECT_ITEM_FORMAT = "・{question}"
+FAQ_REDIRECT_TEMPLATE = (     # {faq_questions} に該当したFAQの質問（上の形式で1行ずつ）が入る
+    "この内容は「よくある質問」に回答があります。\n"
+    "{faq_questions}\n"
+    "\n"
+    "画面右上の「よくある質問」ボタンから確認できます。\n"
+    "ほかにも質問や感想があれば、ぜひ入力してください。"
+)
+# 過去ログの表示で誘導メッセージを見分けるための先頭部分
+FAQ_REDIRECT_PREFIX = FAQ_REDIRECT_TEMPLATE.split("{")[0].splitlines()[0]
+
+st.set_page_config(page_title=f"質問応答チャットボット（{SUBJECT_NAME}）")
 
 # 環境変数のロード（必要に応じて）
 load_dotenv()
@@ -105,9 +128,6 @@ def delete_last_turn_from_sheet(student_id: str):
     except Exception as e:
         st.warning(f"Google Sheets上のログ削除に失敗しました: {e}")
 
-# Streamlitのヘッダー
-st.title("質問応答チャットボット（情報ネットワーク工学入門）")
-
 # --- Moodleからパラメータ受け取り ---
 params = st.query_params
 student_id   = st.query_params.get("student_id",   "anonymous")
@@ -118,7 +138,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
     # ▼ 過去10件の会話履歴を取得（修正版：リストが返ってくる）
-    history_data = fetch_recent_history_text(student_id, limit=10)
+    history_data = fetch_recent_history_text(student_id, limit=HISTORY_FETCH_LIMIT)
 
     # 文字列分割をやめ、リストから直接 session_state に入れる
     for item in history_data:
@@ -143,46 +163,56 @@ if os.path.exists(example_folder):
 # リスト → タプルに変換してから渡す
 combined_index = load_and_index_multiple_folders(tuple(folders_to_load))
 
-# セッション状態でバナーの表示・非表示を管理するフラグを初期化
-if "welcome_hidden" not in st.session_state:
-    st.session_state.welcome_hidden = False
+# --- よくある質問（faq.yaml）の読み込み（更新時刻が変わると再読み込み） ---
+faqs, faq_warnings = load_faqs(FAQ_FILE_PATH)
 
-# --- 直前のやり取りを取り消す（表示上の履歴のみ。Google Sheetsのログは残る） ---
+# --- 応答処理（送信後、qa.process_pending からスピナー表示の内側で呼ばれる） ---
+def answer_query(query):
+    # 回答生成中に別のボタンが押されても、回答の受け取りからSheetsへの記録までが
+    # 打ち切られないよう、st.session_state には最初の1回だけ触れて履歴リストを直接更新する
+    messages = st.session_state.messages
+
+    # FAQに該当する短い入力はAIを呼ばず、「よくある質問」へ誘導する（判定はキーワード照合のみ）
+    matched_faqs = match_faqs(query, faqs, FAQ_MATCH_MAX_CHARS, FAQ_MATCH_MAX_ITEMS)
+
+    messages.append({"role": "user", "content": query})
+
+    if matched_faqs:
+        response = build_redirect_message(matched_faqs, FAQ_REDIRECT_TEMPLATE, FAQ_REDIRECT_ITEM_FORMAT)
+    else:
+        response = search_index(
+            combined_index,
+            query,
+            history_pairs=messages[-20:]
+        )
+
+    messages.append({"role": "assistant", "content": response})
+    # FAQへ誘導した入力も、出席の提出として通常どおり記録する
+    save_single_turn_to_sheet(query, response, student_id, student_name)
+    return {"query": query, "response": response, "faq_ids": [faq.id for faq in matched_faqs]}
+
+# --- 画面 ---
+header.render(SUBJECT_NAME, student_name)
+faq_view.render(faqs, faq_warnings)
+
+if header.current_view() == header.VIEW_QA:
+    qa.render(answer_query, FAQ_REDIRECT_PREFIX)
+else:
+    # 回答の作成中に過去ログへ切り替えた場合も、回答と記録が済んでから表示する
+    qa.process_pending(answer_query)
+    history.render(
+        st.session_state.messages,
+        HISTORY_HEIGHT,
+        HISTORY_NEWEST_FIRST,
+        FAQ_REDIRECT_PREFIX,
+        HISTORY_FETCH_LIMIT,
+    )
+
+# --- 直前のやり取りを取り消す（表示上の履歴と、Google Sheets上の最後の1行を削除） ---
+# 送信後の状態を反映させるため、本文の描画後にサイドバーを描画する
 with st.sidebar:
     if st.button("↩️ 直前のやり取りを取り消す", disabled=len(st.session_state.messages) < 2):
         delete_last_turn_from_sheet(student_id)
         st.session_state.messages = st.session_state.messages[:-2]
-        if not st.session_state.messages:
-            st.session_state.welcome_hidden = False
+        qa.clear_last_turn()
         st.rerun()
-
-# --- 1. 過去のチャット履歴を画面に表示する ---
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# --- 2. ユーザー情報（送信ボタンが押されるまで表示） ---
-if not st.session_state.welcome_hidden:
-    st.info(f"ようこそ {student_name} さん (学籍番号: {student_id})")
-
-# --- 3. ユーザー入力エリア（画面下部に固定） ---
-query = st.chat_input("質問を入力してください（Shift+Enterで改行、Enterで送信）")
-
-# --- 4. 応答処理 ---
-if query:
-    # 送信された瞬間にフラグをTrueにする
-    st.session_state.welcome_hidden = True
-    
-    st.session_state.messages.append({"role": "user", "content": query})
-    
-    response = search_index(
-        combined_index,
-        query,
-        history_pairs=st.session_state.messages[-20:]
-    )
-
-    st.session_state.messages.append({"role": "assistant", "content": response})
-    save_single_turn_to_sheet(query, response, student_id, student_name)
-    
-    # 画面を更新してバナーを消去
-    st.rerun()
